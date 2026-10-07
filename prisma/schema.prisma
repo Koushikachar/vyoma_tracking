@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  ANALYST
+}
+
+enum ShipmentStatus {
+  ORDER_CREATED
+  PICKED_UP
+  IN_TRANSIT
+  AT_DESTINATION_HUB
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DELIVERY_ATTEMPTED
+  EXCEPTION
+  RTO
+  RETURNED
+  UNKNOWN
+}
+
+model Carrier {
+  id          String              @id @default(cuid())
+  code        String              @unique
+  name        String
+  mode        String              @default("live")
+  credentials CarrierCredential[]
+  shipments   Shipment[]
+}
+
+model CarrierCredential {
+  id             String   @id @default(cuid())
+  carrierId      String
+  carrier        Carrier  @relation(fields: [carrierId], references: [id])
+  encryptedToken String
+  baseUrl        String?
+  updatedAt      DateTime @updatedAt
+}
+
+model Shipment {
+  id                  String          @id @default(cuid())
+  trackingId          String
+  carrierId           String
+  carrier             Carrier         @relation(fields: [carrierId], references: [id])
+  carrierCode         String
+  carrierName         String
+  detectionConfidence Float           @default(1)
+  currentStatus       ShipmentStatus
+  currentStatusRaw    String
+  lastUpdatedAt       DateTime
+  estimatedDeliveryAt DateTime?
+  deliveredAt         DateTime?
+  origin              String?
+  destination         String?
+  lastCarrierSyncAt   DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  events              ShipmentEvent[]
+
+  @@unique([carrierCode, trackingId])
+}
+
+model ShipmentEvent {
+  id          String         @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  eventTime   DateTime
+  status      ShipmentStatus
+  rawStatus   String
+  description String?
+  location    String?
+  source      String
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+
+  @@unique([shipmentId, eventTime, rawStatus])
+}
+
+model TrackingLookup {
+  id             String   @id @default(cuid())
+  trackingIdHash String
+  carrierCode    String?
+  success        Boolean
+  errorCode      String?
+  source         String
+  latencyMs      Int
+  requestId      String
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model AdminUser {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String
+  role           Role      @default(SUPPORT)
+  totpSecretEnc  String?
+  recoveryHashes String[]  @default([])
+  failedLogins   Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  userId     String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+}
+
+model WebhookEvent {
+  id            String    @id @default(cuid())
+  carrier       String
+  eventId       String
+  payload       Json
+  signature     String?
+  receivedAt    DateTime  @default(now())
+  processedAt   DateTime?
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime?
+  error         String?
+
+  @@unique([carrier, eventId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String
+  action     String
+  resource   String?
+  resourceId String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  company   String?
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id            String   @id @default(cuid())
+  channel       String
+  event         String
+  shipmentId    String?
+  recipientHash String?
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+}
